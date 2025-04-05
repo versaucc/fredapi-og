@@ -374,7 +374,7 @@ class Fred:
                 offset = i * self.max_results_per_request
                 next_data, _ = self.__do_series_search(url + '&offset=' + str(offset))
                 data = pd.concat([data, next_data])
-        return data.head(max_results_needed)
+        return data.head(max_results_needed) # This might be an error, should be getting more than 1k 
 
     def search(self, text, limit=1000, order_by=None, sort_order=None, filter=None):
         """
@@ -468,3 +468,113 @@ class Fred:
         if info is None:
             raise ValueError('No series exists for category id: ' + str(category_id))
         return info
+
+    def concatenate_url(self, parameters):
+
+        if parameters['request_type'] == 'tags/series':
+            url = "%s/tags/series?tag_names=%s" % (self.root_url,
+                                                    parameters['tag_names'])
+            if parameters['exclude_tag_names'] is not None:
+                url += '&exclude_tag_names=' + parameters['exclude_tag_names']
+            if parameters['limit'] != 0:
+                url += '&limit=' + str(parameters['limit'])
+            else :
+                url += '&limit=' + str(self.max_results_per_request)
+            if parameters['order_by'] is not None:
+                url += '&order_by=' + parameters['order_by']
+            if parameters['sort_order'] is not None:
+                url += '&sort_order=' + parameters['sort_order']
+
+            url += '&api_key=' + self.api_key
+
+            return url
+
+        if parameters['request_type'] == 'series/observations':
+            url = "%s/series/observations/%s" % (self.root_url,
+                                    parameters['series_id'])
+            return url
+
+
+        return
+    
+    def parse_all_series(self, df):
+        """
+        Helper function to parse an xml dump of series collected from a search
+
+        Parameters
+        ----------
+        df : dataframe
+            dataframe containing the series data (specifically each series id collected)
+
+        Returns
+        -------
+        data : dictionary of dataframes
+
+        """
+        df_list = []
+        for i in range (len(df)):
+            parameters = { 
+                'request_type' : 'series/observations',
+                'series_id' : df.iloc[i][0],
+                'title' : df.iloc[i]['title']
+                } 
+            subset_dict = {'title' : parameters['title'], 
+                           'observation_data' : self.get_series_all_releases(parameters['series_id']),
+                           'series_info' : self.get_series(parameters['series_id']),
+                           'series_id' : parameters['series_id']
+                           }
+            df_list.append(subset_dict)
+        return df_list
+
+    
+    def search_by_tags(self, tag_names, exclude_tag_names=None , limit=0, order_by=None, sort_order=None, filter=None):
+        """
+        Search for series that's related to (or isn't related to) a tag. Returns information about matching series in a DataFrame.
+
+        Parameters
+        ----------
+        tag_names : str
+            semicolon-seperated list of tags, e.g. slovenia;food
+            *tags are ascociated with both series and categories* 
+        exclude_tag_names : str, optional
+            exclude_tag_names, e.g., alcohol;quarterly ignores series with these tags
+        limit : int, optional
+            limit the number of results to this value. If limit is 0, it means fetching all results without limit.
+        order_by : str, optional
+            order the results by a criterion. Valid options are 'search_rank', 'series_id', 'title', 'units', 'frequency',
+            'seasonal_adjustment', 'realtime_start', 'realtime_end', 'last_updated', 'observation_start', 'observation_end',
+            'popularity'
+        sort_order : str, optional
+            sort the results by ascending or descending order. Valid options are 'asc' or 'desc'
+        filter : tuple, optional
+            filters the results. Expects a tuple like (filter_variable, filter_value).
+            Valid filter_variable values are 'frequency', 'units', and 'seasonal_adjustment'    
+        Returns
+        -------
+        info : DataFrame
+            a DataFrame containing information about the matching Fred series
+        """
+        
+        parameters = {
+            'request_type' : 'tags/series',
+            'tag_names' : tag_names,
+            'exclude_tag_names' : exclude_tag_names,
+            'limit' : limit, 
+            'order_by' : order_by,
+            'sort_order' : sort_order,
+            'filter' : filter
+        }
+
+        url = self.concatenate_url(parameters)
+
+        print(url)
+ 
+        info = self.__do_series_search(url)
+        info = info[0]
+        if info is None: # Debug
+            raise ValueError('No series exists for included tag(s): ' + str(tag_names) + 'or excluded tag(s): ' + str(exclude_tag_names))
+        return info 
+
+
+# info = self.parse_series(results)
+# https://api.stlouisfed.org/fred/tags/series?tag_names=slovenia;food;oecd&api_key=abcdefghijklmnopqrstuvwxyz123456
